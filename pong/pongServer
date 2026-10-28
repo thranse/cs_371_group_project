@@ -1,9 +1,9 @@
 # =================================================================================================
 # Contributing Authors: Ethan Winston
 # Email Addresses: etwi236@uky.edu 
-# Date: 
+# Date:
 # Purpose: Accept two test clients and relay messages between them.
-# Misc: 
+# Misc:
 # =================================================================================================
 
 import json
@@ -12,21 +12,9 @@ import threading
 from typing import Any
 
 
-# initializing the server
-server_host = "localhost"
-server_ip = 124513
-
-
-
-
-
-
-
-HOST = "0.0.0.0"
-PORT = 5000
-
-
-
+HOST = '0.0.0.0' # accepts connections from any IP address
+PORT = 12345
+BUFFER_SIZE = 1024
 
 
 def send_message(client: socket.socket, message: dict[str, Any]) -> None:

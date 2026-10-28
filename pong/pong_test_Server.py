@@ -1,0 +1,87 @@
+# =================================================================================================
+# Contributing Authors: Ethan Winston
+# Email Addresses: etwi236@uky.edu 
+# Date: October 27, 2026
+# Purpose: Accept two test clients and relay messages between them.
+# Misc: This is a connectivity milestone, not the complete Pong game server.
+# =================================================================================================
+
+import json
+import socket
+import threading
+from typing import Any
+
+
+HOST = "0.0.0.0"
+PORT = 5000
+
+
+def send_message(client: socket.socket, message: dict[str, Any]) -> None:
+    """Send one newline-delimited JSON message to a connected client."""
+    data = json.dumps(message).encode("utf-8") + b"\n"
+    client.sendall(data)
+
+
+def relay_messages(source: socket.socket, destination: socket.socket) -> None:
+    """Forward bytes received from one client to the other until disconnect."""
+    try:
+        while True:
+            data = source.recv(4096)
+            if not data:
+                break
+            destination.sendall(data)
+    except OSError as error:
+        print(f"Client connection closed: {error}")
+    finally:
+        try:
+            destination.shutdown(socket.SHUT_WR)
+        except OSError as error:
+            print(f"Could not signal peer disconnect: {error}")
+
+
+def serve_clients(server_socket: socket.socket) -> None:
+    """Accept two clients, assign their sides, and relay data in both directions."""
+    clients: list[socket.socket] = []
+    try:
+        for player, side in enumerate(("left", "right"), start=1):
+            client, address = server_socket.accept()
+            clients.append(client)
+            print(f"Player {player} connected from {address}")
+            send_message(
+                client,
+                {"type": "welcome", "player": side, "width": 640, "height": 480},
+            )
+
+        relays = [
+            threading.Thread(
+                target=relay_messages,
+                args=(clients[0], clients[1]),
+                daemon=True,
+            ),
+            threading.Thread(
+                target=relay_messages,
+                args=(clients[1], clients[0]),
+                daemon=True,
+            ),
+        ]
+        for relay in relays:
+            relay.start()
+        for relay in relays:
+            relay.join()
+    finally:
+        for client in clients:
+            client.close()
+
+
+def main() -> None:
+    """Start the two-client connectivity server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind((HOST, PORT))
+        server_socket.listen(2)
+        print(f"Waiting for two clients on {HOST}:{PORT}")
+        serve_clients(server_socket)
+
+
+if __name__ == "__main__":
+    main()

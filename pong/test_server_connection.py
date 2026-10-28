@@ -5,7 +5,7 @@ import socket
 import threading
 import unittest
 
-from pongServer import serve_clients
+from pong.pong_test_Server import serve_clients
 
 
 class ServerConnectionTests(unittest.TestCase):
