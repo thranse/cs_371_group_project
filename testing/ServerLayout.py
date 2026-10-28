@@ -1,7 +1,7 @@
 # ServerLayout.py
 import socket
  
-HOST = 'localhost'
+HOST = '0.0.0.0' # accepts connections from any IP address
 PORT = 12345
 BUFFER_SIZE = 1024
  

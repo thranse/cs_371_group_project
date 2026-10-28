@@ -1,7 +1,7 @@
 # ClientLayout.py
 import socket
  
-HOST = '10.47.109.77'  # edurom ipv4 default gateway
+HOST = '10.47.01'  # CHANGE TO SPECIFIC IPV4 (other computer) when running
 PORT = 12345        # Must match the server's PORT
 BUFFER_SIZE = 1024
  
