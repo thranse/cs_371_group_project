@@ -1,7 +1,7 @@
 # ClientLayout.py
 import socket
  
-HOST = 'localhost'  # Must match the server's HOST
+HOST = '10.47.109.77'  # edurom ipv4 default gateway
 PORT = 12345        # Must match the server's PORT
 BUFFER_SIZE = 1024
  
