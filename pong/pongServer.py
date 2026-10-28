@@ -1,9 +1,9 @@
 # =================================================================================================
-# Contributing Authors: <Anyone who touched the code>
-# Email Addresses: <Your uky.edu email addresses>
-# Date: October 27, 2026
+# Contributing Authors: Ethan Winston
+# Email Addresses: etwi236@uky.edu 
+# Date: 
 # Purpose: Accept two test clients and relay messages between them.
-# Misc: This is a connectivity milestone, not the complete Pong game server.
+# Misc: 
 # =================================================================================================
 
 import json
@@ -12,8 +12,21 @@ import threading
 from typing import Any
 
 
+# initializing the server
+server_host = "localhost"
+server_ip = 124513
+
+
+
+
+
+
+
 HOST = "0.0.0.0"
 PORT = 5000
+
+
+
 
 
 def send_message(client: socket.socket, message: dict[str, Any]) -> None:
