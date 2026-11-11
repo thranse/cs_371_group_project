@@ -145,7 +145,7 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
         pygame.draw.rect(screen, WHITE, topWall)
         pygame.draw.rect(screen, WHITE, bottomWall)
         scoreRect = updateScore(lScore, rScore, screen, WHITE, scoreFont)
-        pygame.display.update()
+        pygame.display.update([topWall, bottomWall, ball, leftPaddle, rightPaddle, scoreRect, winMessage])
         clock.tick(60)
         
         # This number should be synchronized between you and your opponent.  If your number is larger
@@ -176,6 +176,21 @@ def joinServer(ip:str, port:str, errorLabel:tk.Label, app:tk.Tk) -> None:
     # Create a socket and connect to the server
     # You don't have to use SOCK_STREAM, use what you think is best
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(("localhost", 5000))
+    for i in range(100):
+        client.sendall(str(i).encode() + b"\n") # Add buffer to mark end of each message
+    # Define buffer
+    buffer = b""
+
+    # Filter messages for newline characters
+    # data = client.recv(1024)
+    #buffer += data
+    #while b"\n" in buffer:
+        #message, buffer = buffer.split(b"\n", 1)
+
+        # Print data
+        #print ("Received:", message)
+    client.close()
 
     # Get the required information from your server (screen width, height & player paddle, "left or "right)
 
@@ -222,9 +237,9 @@ def startScreen():
     app.mainloop()
 
 if __name__ == "__main__":
-    #startScreen()
+    startScreen()
     
     # Uncomment the line below if you want to play the game without a server to see how it should work
     # the startScreen() function should call playGame with the arguments given to it by the server this is
     # here for demo purposes only
-    playGame(640, 480,"left",socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+    #playGame(640, 480,"left",socket.socket(socket.AF_INET, socket.SOCK_STREAM))
