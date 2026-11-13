@@ -10,13 +10,24 @@ import pygame
 import tkinter as tk
 import sys
 import socket
+import json
 
 from assets.code.helperCode import *
+
+def read_line(client, buf):
+    """Block until one full newline-terminated JSON message arrives."""
+    while b"\n" not in buf:
+        chunk = client.recv(4096)
+        if not chunk:
+            raise ConnectionError("server closed the connection")
+        buf += chunk
+    line, _, buf = buf.partition(b"\n")
+    return json.loads(line), buf
 
 # This is the main game loop.  For the most part, you will not need to modify this.  The sections
 # where you should add to the code are marked.  Feel free to change any part of this project
 # to suit your needs.
-def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.socket) -> None:
+def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.socket, buf:bytes=b"") -> None:
     
     # Pygame inits
     pygame.mixer.pre_init(44100, -16, 2, 2048)
@@ -60,6 +71,9 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
 
     sync = 0
 
+    client.setblocking(False)
+    seq = 0
+
     while True:
         # Wiping the screen
         screen.fill((0,0,0))
@@ -83,6 +97,32 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
         # Your code here to send an update to the server on your paddle's information,
         # where the ball is and the current score.
         # Feel free to change when the score is updated to suit your needs/requirements
+        # send my paddle position, only while moving
+        if playerPaddleObj.moving != "":
+            msg = {"type": "paddle", "y": playerPaddleObj.rect.y, "sequence": seq}
+            try:
+                client.sendall((json.dumps(msg) + "\n").encode())
+                seq += 1
+            except (BlockingIOError, OSError):
+                pass
+
+        # read anything the server sent
+        try:
+            chunk = client.recv(4096)
+            if not chunk:
+                break                       # server closed the connection
+            buf += chunk
+        except BlockingIOError:
+            pass
+        while b"\n" in buf:
+            line, _, buf = buf.partition(b"\n")
+            state = json.loads(line)
+            if state.get("type") == "state":
+                if playerPaddle == "left":
+                    opponentPaddleObj.rect.y = state["right_paddle_y"]
+                else:
+                    opponentPaddleObj.rect.y = state["left_paddle_y"]
+                opponentPaddleObj.moving = ""
         
         
         # =========================================================================================
@@ -165,7 +205,7 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
 # the screen width, height and player paddle (either "left" or "right")
 # If you want to hard code the screen's dimensions into the code, that's fine, but you will need to know
 # which client is which
-def joinServer(ip:str, port:str, errorLabel:tk.Label, app:tk.Tk) -> None:
+
     # Purpose:      This method is fired when the join button is clicked
     # Arguments:
     # ip            A string holding the IP address of the server
@@ -175,30 +215,26 @@ def joinServer(ip:str, port:str, errorLabel:tk.Label, app:tk.Tk) -> None:
     
     # Create a socket and connect to the server
     # You don't have to use SOCK_STREAM, use what you think is best
+def joinServer(ip:str, port:str, errorLabel:tk.Label, app:tk.Tk) -> None:
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect(("localhost", 5000))
-    for i in range(100):
-        client.sendall(str(i).encode() + b"\n") # Add buffer to mark end of each message
-    # Define buffer
-    buffer = b""
+    try:
+        client.connect((ip, int(port)))
+    except OSError as e:
+        errorLabel.config(text=f"Could not connect: {e}")
+        return
 
-    # Filter messages for newline characters
-    # data = client.recv(1024)
-    #buffer += data
-    #while b"\n" in buffer:
-        #message, buffer = buffer.split(b"\n", 1)
+    errorLabel.config(text="Connected, waiting for the other player...")
+    errorLabel.update()
 
-        # Print data
-        #print ("Received:", message)
-    client.close()
+    welcome, buf = read_line(client, b"")
+    print("WELCOME MESSAGE:", welcome)      # look at this to see the real field names
+    side = welcome["player"]          # "left" or "right"
+    width = welcome["width"]
+    height = welcome["height"]
 
-    # Get the required information from your server (screen width, height & player paddle, "left or "right)
-
-
-    # If you have messages you'd like to show the user use the errorLabel widget like so
-    errorLabel.config(text=f"Some update text. You input: IP: {ip}, Port: {port}")
-    # You may or may not need to call this, depending on how many times you update the label
-    errorLabel.update()     
+    app.withdraw()
+    playGame(width, height, side, client, buf)   # 640x480 should match SCREEN_WIDTH/HEIGHT in protocol.py
+    app.quit()
 
     # Close this window and start the game with the info passed to you from the server
     #app.withdraw()     # Hides the window (we'll kill it later)
