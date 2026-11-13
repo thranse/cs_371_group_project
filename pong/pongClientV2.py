@@ -27,7 +27,7 @@ def read_line(client, buf):
 # This is the main game loop.  For the most part, you will not need to modify this.  The sections
 # where you should add to the code are marked.  Feel free to change any part of this project
 # to suit your needs.
-def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.socket) -> None:
+def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.socket, buf:bytes=b"") -> None:
     
     # Pygame inits
     pygame.mixer.pre_init(44100, -16, 2, 2048)
@@ -71,6 +71,9 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
 
     sync = 0
 
+    client.setblocking(False)
+    seq = 0
+
     while True:
         # Wiping the screen
         screen.fill((0,0,0))
@@ -94,6 +97,32 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
         # Your code here to send an update to the server on your paddle's information,
         # where the ball is and the current score.
         # Feel free to change when the score is updated to suit your needs/requirements
+        # send my paddle position, only while moving
+        if playerPaddleObj.moving != "":
+            msg = {"type": "paddle", "y": playerPaddleObj.rect.y, "sequence": seq}
+            try:
+                client.sendall((json.dumps(msg) + "\n").encode())
+                seq += 1
+            except (BlockingIOError, OSError):
+                pass
+
+        # read anything the server sent
+        try:
+            chunk = client.recv(4096)
+            if not chunk:
+                break                       # server closed the connection
+            buf += chunk
+        except BlockingIOError:
+            pass
+        while b"\n" in buf:
+            line, _, buf = buf.partition(b"\n")
+            state = json.loads(line)
+            if state.get("type") == "state":
+                if playerPaddle == "left":
+                    opponentPaddleObj.rect.y = state["right_paddle_y"]
+                else:
+                    opponentPaddleObj.rect.y = state["left_paddle_y"]
+                opponentPaddleObj.moving = ""
         
         
         # =========================================================================================
@@ -204,7 +233,7 @@ def joinServer(ip:str, port:str, errorLabel:tk.Label, app:tk.Tk) -> None:
     height = welcome["height"]
 
     app.withdraw()
-    playGame(width, height, side, client)   # 640x480 should match SCREEN_WIDTH/HEIGHT in protocol.py
+    playGame(width, height, side, client, buf)   # 640x480 should match SCREEN_WIDTH/HEIGHT in protocol.py
     app.quit()
 
     # Close this window and start the game with the info passed to you from the server
