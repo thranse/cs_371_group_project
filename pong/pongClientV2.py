@@ -176,7 +176,7 @@ def joinServer(ip:str, port:str, errorLabel:tk.Label, app:tk.Tk) -> None:
     # Create a socket and connect to the server
     # You don't have to use SOCK_STREAM, use what you think is best
     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect(("localhost", 5000))
+    client.connect((ip, int(port)))
     for i in range(100):
         client.sendall(str(i).encode() + b"\n") # Add buffer to mark end of each message
     # Define buffer
