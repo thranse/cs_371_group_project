@@ -6,29 +6,31 @@
 # Misc:
 # =================================================================================================
 
+from __future__ import annotations
+
 import socket
 import threading
+import time
 from dataclasses import dataclass, field
-from typing import Literal, Sequence, TypedDict
+from typing import TYPE_CHECKING, ContextManager, Literal, Sequence, TypedDict
+
+if TYPE_CHECKING:
+    from .protocol import GameState, PaddleUpdate, ProtocolMessage
 
 if __package__:
     from .protocol import (
+        PADDLE_HEIGHT,
         SCREEN_HEIGHT,
         SCREEN_WIDTH,
-        GameState,
-        PaddleUpdate,
-        ProtocolMessage,
         decode_paddle_update,
         encode_message,
         make_welcome,
     )
 else:
     from protocol import (
+        PADDLE_HEIGHT,
         SCREEN_HEIGHT,
         SCREEN_WIDTH,
-        GameState,
-        PaddleUpdate,
-        ProtocolMessage,
         decode_paddle_update,
         encode_message,
         make_welcome,
@@ -39,14 +41,20 @@ HOST = "0.0.0.0"
 PORT = 12345
 PLAYER_SIDES: tuple[Literal["left", "right"], ...] = ("left", "right")
 MAX_MESSAGE_BYTES = 4096
+BALL_SIZE = 5
+PADDLE_WIDTH = 10
+WALL_THICKNESS = 10
+WINNING_SCORE = 5
+TICK_RATE = 60
+TICK_INTERVAL = 1 / TICK_RATE
 
 
 @dataclass
 class ServerGameState:
     """State the server shares between the two connected players."""
 
-    left_paddle_y: float = (SCREEN_HEIGHT / 2) - 25
-    right_paddle_y: float = (SCREEN_HEIGHT / 2) - 25
+    left_paddle_y: float = (SCREEN_HEIGHT / 2) - (PADDLE_HEIGHT / 2)
+    right_paddle_y: float = (SCREEN_HEIGHT / 2) - (PADDLE_HEIGHT / 2)
     ball_x: float = SCREEN_WIDTH / 2
     ball_y: float = SCREEN_HEIGHT / 2
     ball_vx: float = -5.0
@@ -57,7 +65,7 @@ class ServerGameState:
     last_input_sequence: dict[Literal["left", "right"], int] = field(
         default_factory=lambda: {"left": -1, "right": -1}
     )
-    lock: threading.Lock = field(default_factory=threading.Lock)
+    lock: ContextManager[bool] = field(default_factory=threading.Lock)
     stopped: threading.Event = field(default_factory=threading.Event)
 
 
@@ -99,12 +107,11 @@ def broadcast_state(
 
 
 def apply_paddle_update(
-    clients: tuple[PlayerClient, PlayerClient],
     state: ServerGameState,
     side: Literal["left", "right"],
     update: PaddleUpdate,
 ) -> None:
-    """Accept a newer paddle input and broadcast the resulting server state."""
+    """Apply a newer client input to that player's paddle."""
     with state.lock:
         if update["sequence"] <= state.last_input_sequence[side]:
             raise ValueError("paddle sequence must increase for each player")
@@ -114,11 +121,74 @@ def apply_paddle_update(
         else:
             state.right_paddle_y = update["y"]
         state.last_input_sequence[side] = update["sequence"]
-        state.sequence += 1
 
-        frame = encode_message(make_state_snapshot(state))
-        for player in clients:
-            player["socket"].sendall(frame)
+
+def step_game_state(state: ServerGameState) -> None:
+    """Advance the authoritative ball and scoring state by one server tick."""
+    with state.lock:
+        state.sequence += 1
+        if max(state.left_score, state.right_score) >= WINNING_SCORE:
+            return
+
+        state.ball_x += state.ball_vx
+        state.ball_y += state.ball_vy
+
+        if state.ball_y <= WALL_THICKNESS and state.ball_vy < 0:
+            state.ball_y = float(WALL_THICKNESS)
+            state.ball_vy *= -1
+        elif (
+            state.ball_y + BALL_SIZE >= SCREEN_HEIGHT - WALL_THICKNESS
+            and state.ball_vy > 0
+        ):
+            state.ball_y = float(SCREEN_HEIGHT - WALL_THICKNESS - BALL_SIZE)
+            state.ball_vy *= -1
+
+        left_paddle_x = WALL_THICKNESS
+        right_paddle_x = SCREEN_WIDTH - WALL_THICKNESS - PADDLE_WIDTH
+        ball_right = state.ball_x + BALL_SIZE
+        ball_bottom = state.ball_y + BALL_SIZE
+
+        if (
+            state.ball_vx < 0
+            and state.ball_x <= left_paddle_x + PADDLE_WIDTH
+            and ball_right >= left_paddle_x
+            and ball_bottom > state.left_paddle_y
+            and state.ball_y < state.left_paddle_y + PADDLE_HEIGHT
+        ):
+            state.ball_x = float(left_paddle_x + PADDLE_WIDTH)
+            state.ball_vx = abs(state.ball_vx)
+            state.ball_vy = float(
+                (int(state.ball_y) + BALL_SIZE // 2
+                 - (int(state.left_paddle_y) + PADDLE_HEIGHT // 2)) // 2
+            )
+        elif (
+            state.ball_vx > 0
+            and ball_right >= right_paddle_x
+            and state.ball_x <= right_paddle_x + PADDLE_WIDTH
+            and ball_bottom > state.right_paddle_y
+            and state.ball_y < state.right_paddle_y + PADDLE_HEIGHT
+        ):
+            state.ball_x = float(right_paddle_x - BALL_SIZE)
+            state.ball_vx = -abs(state.ball_vx)
+            state.ball_vy = float(
+                (int(state.ball_y) + BALL_SIZE // 2
+                 - (int(state.right_paddle_y) + PADDLE_HEIGHT // 2)) // 2
+            )
+
+        if state.ball_x > SCREEN_WIDTH:
+            state.left_score += 1
+            reset_ball(state, direction=-1)
+        elif state.ball_x < 0:
+            state.right_score += 1
+            reset_ball(state, direction=1)
+
+
+def reset_ball(state: ServerGameState, direction: Literal[-1, 1]) -> None:
+    """Place the ball at center after a point and set its horizontal direction."""
+    state.ball_x = SCREEN_WIDTH / 2
+    state.ball_y = SCREEN_HEIGHT / 2
+    state.ball_vx = float(5 * direction)
+    state.ball_vy = 0.0
 
 
 def handle_client(
@@ -141,7 +211,7 @@ def handle_client(
                 if len(frame) > MAX_MESSAGE_BYTES:
                     raise ValueError("client message exceeds the maximum frame size")
                 update = decode_paddle_update(frame)
-                apply_paddle_update(clients, state, player["side"], update)
+                apply_paddle_update(state, player["side"], update)
             if len(pending) >= MAX_MESSAGE_BYTES:
                 raise ValueError("client message exceeds the maximum frame size")
     except OSError as error:
@@ -167,9 +237,32 @@ def stop_session(
             pass
 
 
+def run_game_loop(
+    clients: tuple[PlayerClient, PlayerClient], state: ServerGameState
+) -> None:
+    """Advance and broadcast authoritative game state at a fixed update rate."""
+    next_tick = time.monotonic()
+    while not state.stopped.is_set():
+        next_tick += TICK_INTERVAL
+        step_game_state(state)
+        try:
+            broadcast_state(clients, state)
+        except OSError as error:
+            print(f"Client connection closed while broadcasting game state: {error}")
+            stop_session(clients, state)
+            return
+
+        delay = next_tick - time.monotonic()
+        if delay > 0:
+            state.stopped.wait(delay)
+        else:
+            next_tick = time.monotonic()
+
+
 def serve_clients(server_socket: socket.socket) -> None:
-    """Accept two clients, exchange welcome/state messages, and process inputs."""
+    """Accept two clients and run their server-authoritative Pong session."""
     clients: list[PlayerClient] = []
+    handlers: list[threading.Thread] = []
     state = ServerGameState()
     try:
         for player, side in enumerate(PLAYER_SIDES, start=1):
@@ -177,7 +270,12 @@ def serve_clients(server_socket: socket.socket) -> None:
             client: PlayerClient = {"side": side, "socket": connection}
             clients.append(client)
             print(f"Player {player} connected from {address}")
-            send_message(connection, make_welcome(side))
+
+        for client in clients:
+            send_message(
+                client["socket"],
+                make_welcome(client["side"]),
+            )
 
         client_pair = (clients[0], clients[1])
         broadcast_state(client_pair, state)
@@ -191,10 +289,11 @@ def serve_clients(server_socket: socket.socket) -> None:
         ]
         for handler in handlers:
             handler.start()
-        for handler in handlers:
-            handler.join()
+        run_game_loop(client_pair, state)
     finally:
         stop_session(clients, state)
+        for handler in handlers:
+            handler.join(timeout=1)
         for client in clients:
             client["socket"].close()
 
