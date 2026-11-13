@@ -106,7 +106,7 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
             except (BlockingIOError, OSError):
                 pass
 
-        # read anything the server sent
+                # read anything the server sent
         try:
             chunk = client.recv(4096)
             if not chunk:
@@ -114,6 +114,8 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
             buf += chunk
         except BlockingIOError:
             pass
+        except OSError:
+            break
         while b"\n" in buf:
             line, _, buf = buf.partition(b"\n")
             state = json.loads(line)
@@ -185,7 +187,7 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
         pygame.draw.rect(screen, WHITE, topWall)
         pygame.draw.rect(screen, WHITE, bottomWall)
         scoreRect = updateScore(lScore, rScore, screen, WHITE, scoreFont)
-        pygame.display.update([topWall, bottomWall, ball, leftPaddle, rightPaddle, scoreRect, winMessage])
+        pygame.display.flip()
         clock.tick(60)
         
         # This number should be synchronized between you and your opponent.  If your number is larger
